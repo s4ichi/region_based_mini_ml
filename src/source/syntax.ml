@@ -1,9 +1,24 @@
-type src_expr =
-  | IntLit of int * string                                       (* c at rho *)
-  | Var of string                                                (* x *)
-  | Prim of string * expr * expr * string                        (* x + y at rho *)
-  | Let of string * expr * expr                                  (* let x = e1 in e2 *)
-  | Letrec of string * string list * string * string expr * expr (* letrec f[rho1, rho2](x) at rho = e1 in e2*)
-  | Letreg of string list * expr                                 (* letregion rho1, rho2 in e *)
-  | Call of expr * expr                                          (* e1 e2 # Apply *)
-  | Lam of string * expr * string ;;                             (* lambda x.e at rho *)
+type exp =
+  | IntLit of int
+  | BoolLit of bool
+  | Var of string
+  | Eq of exp * exp       (* e = e *)
+  | NotEq of exp * exp    (* e = e *)
+  | Greater of exp * exp  (* e > e *)
+  | Less of exp * exp     (* e < e *)
+  | Plus of exp * exp     (* e + e *)
+  | Minus of exp * exp    (* e - e *)
+  | Times of exp * exp    (* e * e *)
+  | Div of exp * exp      (* e / e *)
+  | Let of string * exp * exp
+  | LetRec of string * string * exp * exp
+  | Call of exp * exp
+  | Lam of string * exp ;;
+
+type value =
+  | IntVal  of int
+  | BoolVal  of bool
+  | LamVal  of string * exp * env
+  | RecFunVal of string * string * exp * env
+and
+  env = (string * value) list
