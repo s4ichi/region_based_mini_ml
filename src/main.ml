@@ -1,5 +1,6 @@
 (* main.ml *)
 
-let hello str = print_string str ;;
+open Source ;;
+open Target ;;
 
 let () = UTop_main.main ()
