@@ -1,6 +1,6 @@
 #!/usr/bin/make -f
 
-SRC=src/source.ml src/target.ml src/main.ml
+SRC=src/base.ml src/source.ml src/target.ml src/main.ml
 COMPONENT=$(SRC)
 TARGET=region_ml
 
