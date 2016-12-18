@@ -5,7 +5,7 @@ type ident = string
 type exp =
   | IntLit of int
   | BoolLit of bool
-  | Var of string
+  | Var of ident
   | Eq of exp * exp       (* e = e *)
   | NotEq of exp * exp    (* e = e *)
   | Greater of exp * exp  (* e > e *)
@@ -14,10 +14,10 @@ type exp =
   | Minus of exp * exp    (* e - e *)
   | Times of exp * exp    (* e * e *)
   | Div of exp * exp      (* e / e *)
-  | Let of string * exp * exp
-  | LetRec of string * string * exp * exp
+  | Let of ident * exp * exp
+  | LetRec of ident * ident * exp * exp
   | Call of exp * exp
-  | Lam of string * exp
+  | Lam of ident * exp
   | If of exp * exp * exp
   | Empty
 
@@ -54,8 +54,8 @@ module SourceInterpreter : INTERPRETER = struct
   type value =
     | IntVal  of int
     | BoolVal  of bool
-    | LamVal  of string * exp * value Env.t
-    | RecFunVal of string * string * exp * value Env.t
+    | LamVal  of ident * exp * value Env.t
+    | RecFunVal of ident * ident * exp * value Env.t
 
   let type_inf exp =
     match exp with
