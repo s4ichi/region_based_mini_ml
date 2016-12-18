@@ -2,6 +2,25 @@
 
 type ident = string
 
+type exp =
+  | IntLit of int
+  | BoolLit of bool
+  | Var of string
+  | Eq of exp * exp       (* e = e *)
+  | NotEq of exp * exp    (* e = e *)
+  | Greater of exp * exp  (* e > e *)
+  | Less of exp * exp     (* e < e *)
+  | Plus of exp * exp     (* e + e *)
+  | Minus of exp * exp    (* e - e *)
+  | Times of exp * exp    (* e * e *)
+  | Div of exp * exp      (* e / e *)
+  | Let of string * exp * exp
+  | LetRec of string * string * exp * exp
+  | Call of exp * exp
+  | Lam of string * exp
+  | If of exp * exp * exp
+  | Empty
+
 module type VARIABLE = sig
   type t
   val equal   : t * t -> bool
@@ -19,11 +38,9 @@ module SourceTypeVar : VARIABLE = struct
 end
 
 module type INTERPRETER = sig
-  type exp
   type value
   type ty
 
-  val type_check : exp -> bool
   val type_inf   : exp -> ty
   val eval       : exp -> value
 end
@@ -32,37 +49,13 @@ module SourceInterpreter : INTERPRETER = struct
   module Env = Map.Make(String) ;;
   module TypeEnv = Map.Make(String) ;;
 
-  type exp =
-    | IntLit of int
-    | BoolLit of bool
-    | Var of string
-    | Eq of exp * exp       (* e = e *)
-    | NotEq of exp * exp    (* e = e *)
-    | Greater of exp * exp  (* e > e *)
-    | Less of exp * exp     (* e < e *)
-    | Plus of exp * exp     (* e + e *)
-    | Minus of exp * exp    (* e - e *)
-    | Times of exp * exp    (* e * e *)
-    | Div of exp * exp      (* e / e *)
-    | Let of string * exp * exp
-    | LetRec of string * string * exp * exp
-    | Call of exp * exp
-    | Lam of string * exp ;;
-
-  type ty = TBool | TInt | TFunc | TApp
+  type ty = TBool | TInt | TArrow of ty * ty
 
   type value =
     | IntVal  of int
     | BoolVal  of bool
     | LamVal  of string * exp * value Env.t
     | RecFunVal of string * string * exp * value Env.t
-
-  let type_check exp =
-    let rec walk env e =
-      match exp with
-      | _ -> failwith "wrong value"
-    in
-    walk TypeEnv.empty exp ;;
 
   let type_inf exp =
     match exp with
@@ -127,6 +120,7 @@ module SourceInterpreter : INTERPRETER = struct
       | LetRec(f,x,e1,e2) ->
          let env1 = Env.add f (RecFunVal (f, x, e1, env)) env in
          walk e2 env1
+      | _                 -> failwith "wrong exp"
     in
     walk exp Env.empty ;;
 end

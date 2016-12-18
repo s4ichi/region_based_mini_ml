@@ -3,4 +3,6 @@
 open Source ;;
 open Target ;;
 
-let () = UTop_main.main ()
+let parse str =
+  Parser.main Lexer.token
+    (Lexing.from_string str)
