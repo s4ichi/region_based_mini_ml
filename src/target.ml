@@ -21,21 +21,17 @@ module SrcExp = struct
     | Lam of ident * t
     | Empty
 end
-
 module type VARIABLE = sig
   type t
+  val fmt     : t -> string
   val intro   : ident -> t
   val equal   : t * t -> bool
   val compare : t -> t -> int
   val new_var : int -> t
 end
 
+
 module TyVar : VARIABLE = struct
-  type t = ident
-  let intro x = x
-  let equal (x, x') = x = x'
-  let compare a = fun b -> String.compare a b
-  let new_var c = intro ("'t" ^ (string_of_int c))
 end
 
 module TyVarSet = Set.Make(TyVar)
@@ -43,6 +39,7 @@ module TyVarSet = Set.Make(TyVar)
 module RegVar : VARIABLE = struct
   type t = ident
   let intro x = x
+  let fmt x = x
   let equal (x, x') = x = x'
   let compare a = fun b -> String.compare a b
   let new_var c = intro ("'r" ^ (string_of_int c))
@@ -53,6 +50,7 @@ module RegVarSet = Set.Make(RegVar) ;;
 module EffVar : VARIABLE = struct
   type t = ident
   let intro x = x
+  let fmt x = x
   let equal (x, x') = x = x'
   let compare a = fun b -> String.compare a b
   let new_var c = intro ("'e" ^ (string_of_int c))
@@ -67,6 +65,7 @@ type effect =
 
 module Effect = struct
   type t = effect
+
   let compare a = fun b ->
     match (a, b) with
     | (EffVar(s1), EffVar(s2)) ->
@@ -116,8 +115,7 @@ end
 
 type annotated_type =
   | TVar of TyVar.t
-  | TInt of int
-  | TBool of bool
+  | TInt
   | TArrow of ty_with_place * ArrowEff.t * ty_with_place
 and
   ty_with_place = annotated_type * RegVar.t
@@ -152,8 +150,7 @@ module Substitute = struct
 
   let rec subst_ty ((st, sr, se) as s, t) =
     match t with
-    | TInt(n) -> TInt(n)
-    | TBool(b) -> TBool(b)
+    | TInt -> TInt
     | TVar(x) ->
        if TyVarMap.mem x st then TyVarMap.find x st
        else t
@@ -176,6 +173,15 @@ end
 
 module AnnotatedType = struct
   type t = annotated_type
+
+  let rec fmt ty =
+    match ty with
+    | (TVar(s), r) ->
+       "TVar(" ^ (TyVar.fmt s) ^ ") at " ^ (RegVar.fmt r)
+    | (TArrow(t1, (ev, eff), t2), r) ->
+       "(" ^ (fmt t1) ^ ")-{" ^ (EffVar.fmt ev) ^ ", " ^ "effects" ^ "}-(" ^ (fmt t2) ^ ")"
+    | (TInt, r) ->
+       "TInt at " ^ (RegVar.fmt r)
 
   let rec ftv ty =
     match ty with
@@ -280,6 +286,7 @@ module RRegExp = struct
     | RLetRec of ident * RegVar.t list * ident * t * t * (ty_with_place * EffSet.t)
     | RCall of t * t * (ty_with_place * EffSet.t)
     | RLam of ident * t * RegVar.t * (ty_with_place * EffSet.t)
+    | RLetReg of RegVarSet.t * t * (ty_with_place * EffSet.t)
 
   let ty_with_place e =
     match e with
@@ -290,6 +297,7 @@ module RRegExp = struct
     | RLetRec (_, _, _, _, _, (t, _)) -> t
     | RCall (_, _, (t, _)) -> t
     | RLam (_, _, _, (t, _)) -> t
+    | RLetReg (_, _, (t, _)) -> t
 
   let effects e =
     match e with
@@ -300,13 +308,102 @@ module RRegExp = struct
     | RLetRec (_, _, _, _, _, (_, e)) -> e
     | RCall (_, _, (_, e)) -> e
     | RLam (_, _, _, (_, e)) -> e
+    | RLetReg (_, _, (_, e)) -> e
+
+  let insert p e =
+    match e with
+    | RInt (a, b, _) -> RInt(a, b, p)
+    | RVarX (a, _) -> RVarX(a, p)
+    | RVarF (a, b, c, _) -> RVarF(a, b, c, p)
+    | RLet (a, b, c, _) -> RLet(a, b, c, p)
+    | RLetRec (a, b, c, d, e, _) -> RLetRec(a, b, c, d, e, p)
+    | RCall (a, b, _) -> RCall(a, b, p)
+    | RLam (a, b, c, _) -> RLam(a, b, c, p)
+    | RLetReg (a, b, _) -> RLetReg(a, b, p)
+
+  let rec fmt e =
+    match e with
+    | RInt (i, r, (tp, e)) ->
+       "RInt(" ^ (string_of_int i) ^ ", " ^ (RegVar.fmt r) ^ ", (" ^ (AnnotatedType.fmt tp) ^ "), effects"
+    | RVarX (s, (tp, e)) ->
+       "RVarX(" ^ (s) ^ ", (" ^ (AnnotatedType.fmt tp) ^ "), effects"
+    | RVarF (_, _, _, (_, e)) -> ""
+    | RLet (_, _, _, (_, e)) -> ""
+    | RLetRec (_, _, _, _, _, (_, e)) -> ""
+    | RCall (e1, e2, (tp, e)) ->
+       "RCall((" ^ (fmt e1) ^ "), (" ^ (fmt e2) ^ "), (" ^ (AnnotatedType.fmt tp) ^ "), effects"
+    | RLam (s, e1, r, (tp, e)) ->
+       "RLam(" ^ (s) ^ ", (" ^ (fmt e1) ^ "), " ^ (RegVar.fmt r) ^ ", (" ^ (AnnotatedType.fmt tp) ^ "), effects "
+    | RLetReg (rs, e1, (tp, e)) ->
+       let str_rs = RegVarSet.fold (fun a -> fun b -> (RegVar.fmt a) ^ ", " ^ b) rs "" in
+       "RLetReg(" ^ (str_rs) ^ "), (" ^ (fmt e1) ^ "), (" ^ (AnnotatedType.fmt tp) ^ "), effects"
 end
 
 module type TRANSLATOR = sig
   val translate : SrcExp.t -> RRegExp.t
 end
 
-module TargetTranslator : TRANSLATOR = struct
+module TargetTranslator = struct
+
+  let rec cover env exp =
+    let twp = RRegExp.ty_with_place exp in
+    let eff = RRegExp.effects exp in
+    let mu_r_vars = AnnotatedType.frv twp in
+    let env_r_vars = IdentEnv.fold
+                       (
+                         fun k -> fun v -> fun set -> RegVarSet.union set (AnnotatedType.frv v)
+                       ) env RegVarSet.empty in
+    let r_vars = RegVarSet.union mu_r_vars env_r_vars in
+    let mu_e_vars = AnnotatedType.fev twp in
+    let env_e_vars = IdentEnv.fold
+                       (
+                         fun k -> fun v -> fun set -> EffVarSet.union set (AnnotatedType.fev v)
+                       ) env EffVarSet.empty in
+    let e_vars = EffVarSet.union mu_e_vars env_e_vars in
+    let frv phi =
+      EffSet.fold
+        ( fun a -> ( fun b ->
+                     match a with
+                     | EffPut(r) -> RegVarSet.add r b
+                     | EffGet(r) -> RegVarSet.add r b
+                     | _ -> b
+                   )
+        ) phi RegVarSet.empty in
+
+    let fev phi =
+      EffSet.fold
+        ( fun a -> ( fun b ->
+                     match a with
+                     | EffVar(s) -> EffVarSet.add s b
+                     | _ -> b
+                   )
+        ) phi EffVarSet.empty in
+    let occur_r_vars = frv eff in
+    let occur_e_vars = fev eff in
+    let diff_occur_r = RegVarSet.diff r_vars occur_r_vars in
+    let diff_occur_e = EffVarSet.diff e_vars occur_e_vars in
+    let eff' = EffSet.filter (fun e ->
+                   match e with
+                   | EffVar(x) ->
+                      if EffVarSet.mem x diff_occur_e then false
+                      else true
+                   | _ -> true) eff in
+    let exp' = RRegExp.insert (twp, eff') exp in
+    if RegVarSet.equal RegVarSet.empty diff_occur_r
+    then exp'
+    else
+      let eff'' =
+        EffSet.filter (fun e ->
+            match e with
+            | EffGet(r) | EffPut(r) ->
+               if RegVarSet.mem r diff_occur_r then false
+               else true
+            | _ -> true) eff' in
+      RRegExp.RLetReg (
+          diff_occur_r,
+          RRegExp.insert (twp, eff'') exp',
+          (twp, eff'')
+        )
 
   let translate exp =
     let rec walk e env subst vs =
@@ -317,7 +414,7 @@ module TargetTranslator : TRANSLATOR = struct
            env,
            subst,
            vs1,
-           RRegExp.RInt(n, rv, ((TInt(n), rv), EffSet.singleton (EffPut(rv))))
+           (cover env (RRegExp.RInt(n, rv, ((TInt, rv), EffSet.singleton (EffPut(rv))))))
          )
       | SrcExp.Var(s) ->
          let (t', r') = IdentEnv.find s env in
@@ -327,17 +424,6 @@ module TargetTranslator : TRANSLATOR = struct
            vs,
            RRegExp.RVarX(s, ((t', r'), EffSet.empty))
          )
-
-         (*(match IdentEnv.find s env with
-         | None -> failwith "No match variable"
-         | Some t ->
-            (
-              env,
-              subst,
-              vs,
-              RegExp.RVarX(s, (t, EffSet.empty))
-            )
-         )*)
       | SrcExp.Lam(x, e1) ->
          let ((tv, rv), vs1) = VarStream.fresh_ty_with_place vs in
          let env1 = IdentEnv.add x (tv, rv) env in
@@ -346,14 +432,16 @@ module TargetTranslator : TRANSLATOR = struct
          let (ev', vs4) = VarStream.fresh_eff_var vs3 in
          let t1 = RRegExp.ty_with_place reg_e1 in
          let e1 = RRegExp.effects reg_e1 in
-         let twp1 = Substitute.subst subst (tv, rv) in
+         let twp1 = Substitute.subst subst1 (tv, rv) in
          let arr_eff' = (ev', e1) in
          let env3 = IdentEnv.remove x env2 in
          (
            env3,
            subst1,
            vs4,
-           RRegExp.RLam(x, reg_e1, rv', ((TArrow(twp1, arr_eff', t1), rv'), EffSet.singleton(EffPut(rv'))))
+           (cover
+              env3
+              (RRegExp.RLam(x, reg_e1, rv', ((TArrow(twp1, arr_eff', t1), rv'), EffSet.singleton(EffPut(rv'))))))
          )
       | SrcExp.Call(e1, e2) ->
          let (env1, subst1, vs1, reg_e1) = walk e1 env subst vs in
@@ -372,17 +460,27 @@ module TargetTranslator : TRANSLATOR = struct
            | _ -> failwith "is not TArrow" in
          let env3 = IdentEnv.map (fun t -> Substitute.subst subst3' t) env2 in
          let subst4 = Substitute.compose subst3' (Substitute.compose subst2 subst1) in
-         let eff' = EffSet.union eff (EffSet.union eff1 (EffSet.union eff2 (EffSet.of_list [EffVar(ev); EffGet(r1')]) )) in
+         let eff' = EffSet.union eff (
+                                   EffSet.union eff1 (
+                                                  EffSet.union eff2 (
+                                                                 EffSet.of_list [EffVar(ev); EffGet(r1')]) )) in
+         let reg_e1' = RRegExp.insert (Substitute.subst subst4 t1, Substitute.subst_eff (subst4, eff1)) reg_e1 in
+         let reg_e2' = RRegExp.insert (Substitute.subst subst4 t2, Substitute.subst_eff (subst4, eff2)) reg_e2 in
          (
            env3,
            subst4,
            vs3,
-           (* reg_e1, reg_e2 へ subst が必要な気がする *)
-           RRegExp.RCall(reg_e1, reg_e2, ((t', r1'), eff'))
+           (cover env2 (RRegExp.RCall(reg_e1', reg_e2', ((t', r1'), eff'))))
          )
       | _ -> failwith "unknown expression"
     in
     let (env', subst', vs', reg_exp) = walk exp IdentEnv.empty Substitute.empty VarStream.intro in
-    reg_exp
-    ;;
+    let result_exp = cover env' reg_exp in
+    print_string ((RRegExp.fmt result_exp) ^ "\n");
+    reg_exp;;
 end
+
+
+                            (*
+TargetTranslator.translate (SrcExp.Call((SrcExp.Lam("x", SrcExp.Var("x"))), SrcExp.IntLit(1)));;
+                             *)
