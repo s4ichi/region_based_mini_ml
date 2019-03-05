@@ -18,13 +18,11 @@ $ make all
 $ ./region_ml
 ```
 
-# References
+## References
 
-- “Region-Based Memory Management”
-  - Mads Tofte, Jean-Pierre Talpin (1996)
-- “A region inference algorithm”
-  - Mads Tofte, Lars Birkedal (1998)
+- “Region-Based Memory Management” Mads Tofte, Jean-Pierre Talpin.
+- “A region inference algorithm” Mads Tofte, Lars Birkedal.
 
-# LICENSE
+## LICENSE
 
 MIT
