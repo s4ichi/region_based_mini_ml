@@ -21,7 +21,8 @@ module SrcExp = struct
     | Lam of ident * t
     | Empty
 end
-module type VARIABLE = sig
+
+module type Variable = sig
   type t
   val fmt     : t -> string
   val intro   : ident -> t
@@ -30,13 +31,18 @@ module type VARIABLE = sig
   val new_var : int -> t
 end
 
-
-module TyVar : VARIABLE = struct
+module TyVar : Variable = struct
+  type t = ident
+  let intro x = x
+  let fmt x = x
+  let equal (x, x') = x = x'
+  let compare a = fun b -> String.compare a b
+  let new_var c = intro ("'t" ^ (string_of_int c))
 end
 
 module TyVarSet = Set.Make(TyVar)
 
-module RegVar : VARIABLE = struct
+module RegVar : Variable = struct
   type t = ident
   let intro x = x
   let fmt x = x
@@ -47,7 +53,7 @@ end
 
 module RegVarSet = Set.Make(RegVar) ;;
 
-module EffVar : VARIABLE = struct
+module EffVar : Variable = struct
   type t = ident
   let intro x = x
   let fmt x = x
@@ -380,8 +386,8 @@ module TargetTranslator = struct
         ) phi EffVarSet.empty in
     let occur_r_vars = frv eff in
     let occur_e_vars = fev eff in
-    let diff_occur_r = RegVarSet.diff r_vars occur_r_vars in
-    let diff_occur_e = EffVarSet.diff e_vars occur_e_vars in
+    let diff_occur_r = RegVarSet.diff occur_r_vars r_vars in
+    let diff_occur_e = EffVarSet.diff occur_e_vars e_vars in
     let eff' = EffSet.filter (fun e ->
                    match e with
                    | EffVar(x) ->
